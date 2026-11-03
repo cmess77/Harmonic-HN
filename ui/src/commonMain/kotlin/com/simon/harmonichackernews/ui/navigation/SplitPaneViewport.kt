@@ -11,7 +11,17 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.focusable
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import org.jetbrains.compose.resources.painterResource
+import com.simon.harmonichackernews.resources.Res
+import com.simon.harmonichackernews.resources.ic_chevron_left
+import com.simon.harmonichackernews.resources.ic_chevron_right
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -39,6 +49,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
@@ -120,6 +131,9 @@ internal fun SplitPaneViewport(
     val integrated = browser?.integrated == true
     SideEffect { session.update(savedRatio, integrated, opening, visualExpansion) }
     val temporary = session.openingRatio != null
+    var listCollapsed by rememberSaveable { mutableStateOf(false) }
+    // Browser sessions own the ratio while they are open and have their own restore control.
+    val collapseApplies = listCollapsed && !temporary && browser?.standalone != true
     val sheetTransition = integrated && (opening ||
         logicalExpansion > 0.001f && logicalExpansion < 0.999f ||
         visualExpansion > 0.001f && visualExpansion < 0.999f)
@@ -139,7 +153,7 @@ internal fun SplitPaneViewport(
         else if (browser?.backSlideActive == true && temporary && !browser.standalone) {
             session.ratio + ((session.openingRatio ?: normalRatio) - session.ratio) * browser.backSlideProgress()
         } else SplitRatioPreferences.snapToCenter(it, snapToCenter)
-    }
+    }.let { if (collapseApplies) 0f else it }
     // Ratios are fractions: the default 0.01 threshold would end a crease animation
     // while it was still visibly several pixels away from the target.
     val animatedRatio = remember(orientation) { Animatable(ratio, visibilityThreshold = 0.0001f) }
@@ -238,6 +252,8 @@ internal fun SplitPaneViewport(
         }
     }
 
+    val collapseToggleVisible = twoPane && !temporary && !sheetTransition &&
+        browser?.standalone != true
     CompositionLocalProvider(
         LocalSplitPaneLayout provides SplitPaneLayout(
             supportsTwoPane, ratio, isFoldable, orientation, snapToCenter,
@@ -254,6 +270,40 @@ internal fun SplitPaneViewport(
     ) {
         Box(modifier.fillMaxSize().background(MaterialTheme.colorScheme.pageBackground).onSizeChanged { width = it.width }) {
             content(expansion, layoutDirective)
+            AnimatedVisibility(
+                visible = collapseToggleVisible,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200)),
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .offset {
+                        // Sits above the grip on the divider, and rests on the left edge once collapsed.
+                        val dividerCenter = (width - gap).coerceAtLeast(0f) * animatedRatio.value + gap / 2
+                        IntOffset(
+                            (dividerCenter - CollapseToggleSize.toPx() / 2).roundToInt().coerceAtLeast(0),
+                            -CollapseToggleOffset.roundToPx(),
+                        )
+                    },
+            ) {
+                Box(
+                    Modifier
+                        .size(CollapseToggleSize)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f))
+                        .semantics { role = Role.Button }
+                        .clickable(
+                            onClickLabel = if (listCollapsed) "Show story list" else "Hide story list",
+                        ) { listCollapsed = !listCollapsed },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painterResource(if (listCollapsed) Res.drawable.ic_chevron_right else Res.drawable.ic_chevron_left),
+                        contentDescription = if (listCollapsed) "Show story list" else "Hide story list",
+                        modifier = Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             AnimatedVisibility(
                 // Keep the grip attached to the visible divider while the sheet moves.
                 // Only the actual full-width layout removes it; input is gated separately.
@@ -354,6 +404,9 @@ internal fun SplitPaneViewport(
         }
     }
 }
+
+private val CollapseToggleSize = 36.dp
+private val CollapseToggleOffset = 56.dp
 
 /** Proportion applies to usable pane width; the handle is centered in the intervening spacer. */
 internal fun splitHandleOffset(width: Int, gap: Float, ratio: Float, targetWidth: Int): Int =
