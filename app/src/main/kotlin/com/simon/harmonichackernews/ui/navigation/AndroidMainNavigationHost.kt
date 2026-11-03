@@ -159,10 +159,13 @@ private fun MainNavigation(
     val uiDependencies = LocalHarmonicUiDependencies.current
     val adaptiveInfo = currentWindowAdaptiveInfoV2()
     val context = activity
-    val supportsTwoPane = context.resources.configuration.smallestScreenWidthDp >= 600
     val hasHingeAngleSensor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_SENSOR_HINGE_ANGLE)
     val isFoldable = adaptiveInfo.windowPosture.hingeList.isNotEmpty() || hasHingeAngleSensor
+    // An unfolded foldable can fall under 600dp (display zoom) or under the 840dp expanded
+    // breakpoint, but its inner screen is still wide enough for two panes. The cover screen is not.
+    val supportsTwoPane = context.resources.configuration.smallestScreenWidthDp >= 600 ||
+        isFoldable && context.resources.configuration.screenWidthDp >= 500
     val density = LocalDensity.current
     val tabletPaneSpacer = with(density) {
         context.resources.getDimensionPixelSize(R.dimen.margin_between_panes).toDp()
@@ -172,7 +175,7 @@ private fun MainNavigation(
         val adaptiveDirective = calculatePaneScaffoldDirective(adaptiveInfo)
         adaptiveDirective.copy(
             maxHorizontalPartitions = if (supportsTwoPane) {
-                adaptiveDirective.maxHorizontalPartitions
+                if (isFoldable) maxOf(2, adaptiveDirective.maxHorizontalPartitions) else adaptiveDirective.maxHorizontalPartitions
             } else {
                 1
             },

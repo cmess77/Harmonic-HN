@@ -37,15 +37,18 @@ fun SettingsShell(
     val settingsAccountState by dependencies.platform.accounts.accountState.collectAsStateWithLifecycle()
     val adaptiveInfo = currentWindowAdaptiveInfoV2()
     val configuration = LocalConfiguration.current
-    val supportsTwoPane = configuration.smallestScreenWidthDp >= 600
     val hasHingeAngleSensor = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
         context.packageManager.hasSystemFeature(PackageManager.FEATURE_SENSOR_HINGE_ANGLE)
     val isFoldable = adaptiveInfo.windowPosture.hingeList.isNotEmpty() || hasHingeAngleSensor
+    // An unfolded foldable can fall under 600dp (display zoom) or under the 840dp expanded
+    // breakpoint, but its inner screen is still wide enough for two panes. The cover screen is not.
+    val supportsTwoPane = configuration.smallestScreenWidthDp >= 600 ||
+        isFoldable && configuration.screenWidthDp >= 500
     val directive = remember(adaptiveInfo, supportsTwoPane, isFoldable) {
         val adaptiveDirective = calculatePaneScaffoldDirective(adaptiveInfo)
         adaptiveDirective.copy(
             maxHorizontalPartitions = if (supportsTwoPane) {
-                adaptiveDirective.maxHorizontalPartitions
+                if (isFoldable) maxOf(2, adaptiveDirective.maxHorizontalPartitions) else adaptiveDirective.maxHorizontalPartitions
             } else {
                 1
             },
