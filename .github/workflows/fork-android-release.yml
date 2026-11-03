@@ -1,10 +1,14 @@
 name: fork-android-release
 
-# Android-only release for forks. Push a tag such as android-v1.2 (or run manually) to
-# build the FOSS APK and attach it to a GitHub release. The upstream tag.yml also builds
-# desktop packages and requires signing secrets, so it is left untouched.
+# Android-only release for forks. A push to a release branch or an android-v* tag (or a
+# manual run) builds the FOSS APK and attaches it to a GitHub release. Branch pushes create
+# their own tag, android-v<versionName>-<run>, through the API. The upstream tag.yml also
+# builds desktop packages and requires signing secrets, so it is left untouched.
 on:
   push:
+    branches:
+      - main
+      - 'ccr-*'
     tags:
       - 'android-v*'
   workflow_dispatch:
@@ -23,9 +27,22 @@ jobs:
       UNSIGNED_APK: app/build/outputs/apk/fossRelease/app-fossRelease-unsigned.apk
       ALIGNED_APK: app/build/outputs/apk/fossRelease/app-aligned.apk
       SIGNED_APK: app/build/outputs/apk/fossRelease/Harmonic-HN.apk
-      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
+      - name: Choose release tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            version="$(sed -n 's/^harmonic.versionName=//p' gradle.properties)"
+            tag="android-v${version}-${GITHUB_RUN_NUMBER}"
+          fi
+          echo "RELEASE_TAG=$tag" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -71,5 +88,6 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: ${{ env.SIGNED_APK }}
           generate_release_notes: true
